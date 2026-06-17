@@ -13,8 +13,6 @@ interface Artist {
   best: boolean;
 }
 
-// --- CSV helpers ---
-
 function splitCSVRow(row: string): string[] {
   const fields: string[] = [];
   let cur = "";
@@ -76,8 +74,6 @@ function parseCSV(content: string): Artist[] {
   });
 }
 
-// --- HTML helpers ---
-
 function unwrapGoogleUrl(href: string): string {
   if (href.startsWith("https://www.google.com/url?")) {
     const q = new URL(href).searchParams.get("q");
@@ -116,7 +112,14 @@ function mapLinksWork(val: string): number {
   return 0;
 }
 
-// --- Scraping ---
+const BLOCKLIST = new Set([
+  "Allegations",
+  "Rap Disses Timeline",
+  "Underground Artists",
+  "BPM & Key Tracker",
+  "AI Models",
+  "5F",
+]);
 
 async function scrapeTrackerHub(): Promise<Artist[]> {
   const res = await fetch(
@@ -144,8 +147,8 @@ async function scrapeTrackerHub(): Promise<Artist[]> {
 
     const rawName = tracker.text;
     const best = rawName.includes("⭐️");
-    const name = rawName.replace(/^[⭐️\s⭐️]+/, "").trim();
-    if (!name) continue;
+    const name = rawName.replace(/^[^\p{L}\p{N}]+/u, "").trim();
+    if (!name || BLOCKLIST.has(name)) continue;
 
     entries.push({
       name,
@@ -159,8 +162,6 @@ async function scrapeTrackerHub(): Promise<Artist[]> {
 
   return entries;
 }
-
-// --- Combine ---
 
 function sheetId(url: string): string {
   const m = url.match(/\/spreadsheets(?:\/u\/\d+)?\/d\/([A-Za-z0-9_-]+)/);
@@ -178,8 +179,6 @@ function combine(hub: Artist[], exclusives: Artist[]): Artist[] {
   }
   return out;
 }
-
-// --- Handler ---
 
 async function run(env: Env): Promise<void> {
   const hub = await scrapeTrackerHub();
