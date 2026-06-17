@@ -194,6 +194,9 @@ async function run(env: Env): Promise<void> {
 }
 
 export default {
+  async fetch(): Promise<Response> {
+    return new Response("OK");
+  },
   async scheduled(_event: ScheduledEvent, env: Env, _ctx: ExecutionContext): Promise<void> {
     await run(env);
   },
