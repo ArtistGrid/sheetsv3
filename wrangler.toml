@@ -1,0 +1,17 @@
+name = "trackerhub-scraper"
+main = "src/index.ts"
+compatibility_date = "2025-06-17"
+compatibility_flags = ["nodejs_compat"]
+account_id = "437166d9026f3443e3de30f527ed6d80"
+
+[triggers]
+crons = ["0 * * * *"]
+
+[[rules]]
+type = "Text"
+globs = ["**/*.csv"]
+fallthrough = true
+
+[[r2_buckets]]
+binding = "BUCKET"
+bucket_name = "trackerhub"
