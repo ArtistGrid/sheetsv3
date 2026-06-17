@@ -59,7 +59,7 @@ function serializeCSV(entries: Artist[]): string {
 }
 
 function parseCSV(content: string): Artist[] {
-  const lines = content.trim().split("\n").filter(Boolean);
+  const lines = content.trim().split("\n").map(l => l.replace(/\r$/, "")).filter(Boolean);
   const headers = splitCSVRow(lines[0]);
   return lines.slice(1).map((line) => {
     const vals = splitCSVRow(line);
