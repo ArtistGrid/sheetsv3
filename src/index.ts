@@ -193,8 +193,13 @@ async function run(env: Env): Promise<void> {
 }
 
 export default {
-  async fetch(): Promise<Response> {
-    return new Response("OK");
+  async fetch(request: Request, env: Env): Promise<Response> {
+    const { pathname } = new URL(request.url);
+    if (pathname === "/trigger") {
+      await run(env);
+      return new Response("OK");
+    }
+    return Response.redirect("https://artists.artistgrid.cx/artists.csv", 302);
   },
   async scheduled(_event: ScheduledEvent, env: Env, _ctx: ExecutionContext): Promise<void> {
     await run(env);
