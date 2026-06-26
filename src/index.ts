@@ -157,8 +157,7 @@ const BLOCKLIST = new Set([
 
 const ROW_RE = /<tr[^>]*>([\s\S]*?)<\/tr>/g;
 const CELL_RE = /<t[dh][^>]*>([\s\S]*?)<\/t[dh]>/g;
-const SHEET_ID_RE =
-	/\/spreadsheets(?:\/u\/\d+)?\/d\/(?:e\/)?([A-Za-z0-9_-]+)/;
+const SHEET_ID_RE = /\/spreadsheets(?:\/u\/\d+)?\/d\/(?:e\/)?([A-Za-z0-9_-]+)/;
 
 async function scrapeTrackerHub(): Promise<Artist[]> {
 	const controller = new AbortController();
@@ -221,9 +220,7 @@ async function scrapeTrackerHub(): Promise<Artist[]> {
 }
 
 function sheetId(url: string): string {
-	const m = url.match(
-		/\/spreadsheets(?:\/u\/\d+)?\/d\/(?:e\/)?([A-Za-z0-9_-]+)/,
-	);
+	const m = url.match(SHEET_ID_RE);
 	return m ? m[1] : url;
 }
 
