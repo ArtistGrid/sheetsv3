@@ -44,6 +44,10 @@ function toCSVField(val: string): string {
 	return val;
 }
 
+function clamp(n: number, min: number, max: number): number {
+	return Math.max(min, Math.min(max, n));
+}
+
 function toCSVRow(e: Artist): string {
 	return [
 		toCSVField(e.name),
@@ -62,10 +66,11 @@ function serializeCSV(entries: Artist[]): string {
 
 function parseCSV(content: string): Artist[] {
 	const lines = content
+		.replace(/^\uFEFF/, "")
 		.trim()
-		.split("\n")
-		.map((l) => l.replace(/\r$/, ""))
+		.split(/\r?\n/)
 		.filter(Boolean);
+	if (lines.length < 2) return [];
 	const headers = splitCSVRow(lines[0]);
 	return lines.slice(1).map((line) => {
 		const vals = splitCSVRow(line);
@@ -77,8 +82,8 @@ function parseCSV(content: string): Artist[] {
 			name: row.name,
 			url: row.url,
 			credit: row.credit,
-			links_work: Number(row.links_work),
-			updated: Number(row.updated),
+			links_work: clamp(Number(row.links_work) || 0, 0, 2),
+			updated: Number(row.updated) ? 1 : 0,
 			best: (row.best ?? "").toLowerCase() === "true",
 		};
 	});
@@ -103,26 +108,41 @@ function decodeHtmlEntities(s: string): string {
 		.replace(/&gt;/g, ">")
 		.replace(/&quot;/g, '"')
 		.replace(/&#39;/g, "'")
-		.replace(/&nbsp;/g, " ");
+		.replace(/&apos;/g, "'")
+		.replace(/&nbsp;/g, " ")
+		.replace(/&#x2F;/g, "/")
+		.replace(/&#47;/g, "/")
+		.replace(/&#x60;/g, "`")
+		.replace(/&#96;/g, "`")
+		.replace(/&#(\d+);/g, (_, code) => String.fromCharCode(Number(code)))
+		.replace(/&#x([0-9a-f]+);/gi, (_, hex) =>
+			String.fromCharCode(Number.parseInt(hex, 16)),
+		);
 }
 
 function stripHtml(s: string): string {
-	return s.replace(/<[^>]+>/g, "").trim();
+	return s
+		.replace(/<br\s*\/?>/gi, "\n")
+		.replace(/<\/(p|div)>/gi, "\n")
+		.replace(/<[^>]+>/g, "")
+		.replace(/\n{3,}/g, "\n\n")
+		.trim();
 }
 
 function parseCell(cell: string): { text: string; url: string } {
-	const hrefMatch = cell.match(/href="([^"]+)"/);
+	const hrefMatch = cell.match(/href=(["'])([^"']*)\1/);
 	const text = decodeHtmlEntities(stripHtml(cell));
 	let url = "";
 	if (hrefMatch) {
-		url = unwrapGoogleUrl(decodeHtmlEntities(hrefMatch[1]));
+		url = unwrapGoogleUrl(decodeHtmlEntities(hrefMatch[2]));
 	}
 	return { text, url };
 }
 
 function mapLinksWork(val: string): number {
-	if (val.toLowerCase() === "yes") return 1;
-	if (val.toLowerCase() === "mostly") return 2;
+	const lower = val.toLowerCase();
+	if (lower === "yes") return 1;
+	if (lower === "mostly") return 2;
 	return 0;
 }
 
@@ -135,25 +155,42 @@ const BLOCKLIST = new Set([
 	"5F",
 ]);
 
+const ROW_RE = /<tr[^>]*>([\s\S]*?)<\/tr>/g;
+const CELL_RE = /<t[dh][^>]*>([\s\S]*?)<\/t[dh]>/g;
+const SHEET_ID_RE =
+	/\/spreadsheets(?:\/u\/\d+)?\/d\/(?:e\/)?([A-Za-z0-9_-]+)/;
+
 async function scrapeTrackerHub(): Promise<Artist[]> {
-	const res = await fetch(
-		"https://docs.google.com/spreadsheets/u/0/d/1Z8aANbxXbnUGoZPRvJfWL3gz6jrzPPrwVt3d0c1iJ_4/htmlview/sheet?headers=true&gid=1884837542",
-	);
-	if (!res.ok) {
-		console.error(
-			`Failed to fetch tracker hub: ${res.status} ${res.statusText}`,
+	const controller = new AbortController();
+	const timeout = setTimeout(() => controller.abort(), 15_000);
+	let html: string;
+	try {
+		const res = await fetch(
+			"https://docs.google.com/spreadsheets/u/0/d/1Z8aANbxXbnUGoZPRvJfWL3gz6jrzPPrwVt3d0c1iJ_4/htmlview/sheet?headers=true&gid=1884837542",
+			{
+				signal: controller.signal,
+				headers: { "User-Agent": "TrackerHub/1.0" },
+			},
 		);
+		if (!res.ok) {
+			console.error(
+				`Failed to fetch tracker hub: ${res.status} ${res.statusText}`,
+			);
+			return [];
+		}
+		html = await res.text();
+	} catch (err) {
+		console.error("Failed to fetch tracker hub:", err);
 		return [];
+	} finally {
+		clearTimeout(timeout);
 	}
-	const html = await res.text();
 
 	const entries: Artist[] = [];
-	const rowRegex = /<tr[^>]*>([\s\S]*?)<\/tr>/g;
-	const cellRegex = /<t[dh][^>]*>([\s\S]*?)<\/t[dh]>/g;
 
-	for (const rowMatch of html.matchAll(rowRegex)) {
+	for (const rowMatch of html.matchAll(ROW_RE)) {
 		const cells: string[] = [];
-		for (const cellMatch of rowMatch[1].matchAll(cellRegex)) {
+		for (const cellMatch of rowMatch[1].matchAll(CELL_RE)) {
 			cells.push(cellMatch[1]);
 		}
 		if (cells.length < 5) continue;
@@ -212,7 +249,7 @@ function combine(hub: Artist[], exclusives: Artist[]): Artist[] {
 async function run(env: Env): Promise<void> {
 	try {
 		const hub = await scrapeTrackerHub();
-		const exclusives = parseCSV(exclusiveCSV as unknown as string);
+		const exclusives = parseCSV(exclusiveCSV);
 		const artists = combine(hub, exclusives);
 
 		const artistsCSV = serializeCSV(artists);
