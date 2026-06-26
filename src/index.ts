@@ -13,32 +13,10 @@ interface Artist {
 	best: boolean;
 }
 
-function splitCSVRow(row: string): string[] {
-	const fields: string[] = [];
-	let cur = "";
-	let inQuotes = false;
-	for (let i = 0; i < row.length; i++) {
-		const ch = row[i];
-		if (inQuotes) {
-			if (ch === '"' && row[i + 1] === '"') {
-				cur += '"';
-				i++;
-			} else if (ch === '"') inQuotes = false;
-			else cur += ch;
-		} else {
-			if (ch === '"') inQuotes = true;
-			else if (ch === ",") {
-				fields.push(cur);
-				cur = "";
-			} else cur += ch;
-		}
-	}
-	fields.push(cur);
-	return fields;
-}
+const CSV_NEEDS_ESCAPE = /[,"\n\r]/;
 
 function toCSVField(val: string): string {
-	if (val.includes(",") || val.includes('"') || val.includes("\n")) {
+	if (CSV_NEEDS_ESCAPE.test(val)) {
 		return `"${val.replace(/"/g, '""')}"`;
 	}
 	return val;
@@ -49,88 +27,140 @@ function clamp(n: number, min: number, max: number): number {
 }
 
 function toCSVRow(e: Artist): string {
-	return [
-		toCSVField(e.name),
-		toCSVField(e.url),
-		toCSVField(e.credit),
-		e.links_work,
-		e.updated,
-		e.best,
-	].join(",");
+	return `${toCSVField(e.name)},${toCSVField(e.url)},${toCSVField(e.credit)},${e.links_work},${e.updated},${e.best}`;
 }
 
+const CSV_HEADER = "name,url,credit,links_work,updated,best";
+
 function serializeCSV(entries: Artist[]): string {
-	const header = "name,url,credit,links_work,updated,best";
-	return `${[header, ...entries.map(toCSVRow)].join("\n")}\n`;
+	const rows = entries.map(toCSVRow);
+	return rows.length > 0
+		? `${CSV_HEADER}\n${rows.join("\n")}\n`
+		: `${CSV_HEADER}\n`;
+}
+
+function parseCSVLine(input: string, pos: { i: number }): string[] {
+	const fields: string[] = [];
+	let cur = "";
+	let inQuotes = false;
+	while (pos.i < input.length) {
+		const ch = input[pos.i];
+		if (inQuotes) {
+			if (ch === '"' && input[pos.i + 1] === '"') {
+				cur += '"';
+				pos.i += 2;
+			} else if (ch === '"') {
+				inQuotes = false;
+				pos.i++;
+			} else {
+				cur += ch;
+				pos.i++;
+			}
+		} else {
+			if (ch === '"') {
+				inQuotes = true;
+				pos.i++;
+			} else if (ch === ",") {
+				fields.push(cur);
+				cur = "";
+				pos.i++;
+			} else if (ch === "\r" && input[pos.i + 1] === "\n") {
+				pos.i += 2;
+				break;
+			} else if (ch === "\n") {
+				pos.i++;
+				break;
+			} else {
+				cur += ch;
+				pos.i++;
+			}
+		}
+	}
+	fields.push(cur);
+	return fields;
 }
 
 function parseCSV(content: string): Artist[] {
-	const lines = content
-		.replace(/^\uFEFF/, "")
-		.trim()
-		.split(/\r?\n/)
-		.filter(Boolean);
-	if (lines.length < 2) return [];
-	const headers = splitCSVRow(lines[0]);
-	return lines.slice(1).map((line) => {
-		const vals = splitCSVRow(line);
-		const row: Record<string, string> = {};
-		headers.forEach((h, i) => {
-			row[h] = vals[i] ?? "";
-		});
-		return {
+	const raw = content.replace(/^\uFEFF/, "").trim();
+	if (!raw) return [];
+	const pos = { i: 0 };
+	const headers = parseCSVLine(raw, pos);
+	const artists: Artist[] = [];
+	const row: Record<string, string> = {};
+	while (pos.i < raw.length) {
+		const vals = parseCSVLine(raw, pos);
+		for (let i = 0; i < headers.length; i++) {
+			row[headers[i]] = vals[i] ?? "";
+		}
+		artists.push({
 			name: row.name,
 			url: row.url,
 			credit: row.credit,
 			links_work: clamp(Number(row.links_work) || 0, 0, 2),
 			updated: Number(row.updated) ? 1 : 0,
 			best: (row.best ?? "").toLowerCase() === "true",
-		};
-	});
+		});
+	}
+	return artists;
 }
 
 function unwrapGoogleUrl(href: string): string {
 	if (href.startsWith("https://www.google.com/url?")) {
+		const qStart = href.indexOf("q=", 28);
+		if (qStart === -1) return href;
+		const valStart = qStart + 2;
+		const ampIndex = href.indexOf("&", valStart);
+		const raw =
+			ampIndex === -1 ? href.slice(valStart) : href.slice(valStart, ampIndex);
 		try {
-			const q = new URL(href).searchParams.get("q");
-			return q ?? href;
+			return decodeURIComponent(raw);
 		} catch {
-			return href;
+			return raw;
 		}
 	}
 	return href;
 }
 
+const HTML_ENTITY_MAP: Record<string, string> = {
+	amp: "&",
+	lt: "<",
+	gt: ">",
+	quot: '"',
+	apos: "'",
+	nbsp: " ",
+};
+
+function safeFromCharCode(code: number): string {
+	if (code >= 0xd800 && code <= 0xdfff) return "\uFFFD";
+	if (code > 0x10ffff) return "\uFFFD";
+	return String.fromCharCode(code);
+}
+
 function decodeHtmlEntities(s: string): string {
-	return s
-		.replace(/&amp;/g, "&")
-		.replace(/&lt;/g, "<")
-		.replace(/&gt;/g, ">")
-		.replace(/&quot;/g, '"')
-		.replace(/&#39;/g, "'")
-		.replace(/&apos;/g, "'")
-		.replace(/&nbsp;/g, " ")
-		.replace(/&#x2F;/g, "/")
-		.replace(/&#47;/g, "/")
-		.replace(/&#x60;/g, "`")
-		.replace(/&#96;/g, "`")
-		.replace(/&#(\d+);/g, (_, code) => String.fromCharCode(Number(code)))
-		.replace(/&#x([0-9a-f]+);/gi, (_, hex) =>
-			String.fromCharCode(Number.parseInt(hex, 16)),
-		);
+	return s.replace(/&(\w+|#\d+|#x[0-9a-fA-F]+);/g, (match, entity: string) => {
+		const named = HTML_ENTITY_MAP[entity];
+		if (named) return named;
+		if (entity.startsWith("#x"))
+			return safeFromCharCode(Number.parseInt(entity.slice(2), 16));
+		if (entity.startsWith("#"))
+			return safeFromCharCode(Number(entity.slice(1)));
+		return match;
+	});
 }
 
 function stripHtml(s: string): string {
 	return s
-		.replace(/<br\s*\/?>/gi, "\n")
-		.replace(/<\/(p|div)>/gi, "\n")
+		.replace(/<br(?:\s[^>]*)?>/gi, "\n")
+		.replace(/<\/(?:p|div|li)>/gi, "\n")
 		.replace(/<[^>]+>/g, "")
 		.replace(/\n{3,}/g, "\n\n")
 		.trim();
 }
 
+const HREF_RE = /href=(["'])([^"']*)\1/;
+
 function parseCell(cell: string): { text: string; url: string } {
-	const hrefMatch = cell.match(/href=(["'])([^"']*)\1/);
+	const hrefMatch = cell.match(HREF_RE);
 	const text = decodeHtmlEntities(stripHtml(cell));
 	let url = "";
 	if (hrefMatch) {
@@ -138,6 +168,8 @@ function parseCell(cell: string): { text: string; url: string } {
 	}
 	return { text, url };
 }
+
+const NAME_STRIP_RE = /^[^\p{L}\p{N}]+/u;
 
 function mapLinksWork(val: string): number {
 	const lower = val.toLowerCase();
@@ -158,26 +190,32 @@ const BLOCKLIST = new Set([
 const ROW_RE = /<tr[^>]*>([\s\S]*?)<\/tr>/g;
 const CELL_RE = /<t[dh][^>]*>([\s\S]*?)<\/t[dh]>/g;
 const SHEET_ID_RE = /\/spreadsheets(?:\/u\/\d+)?\/d\/(?:e\/)?([A-Za-z0-9_-]+)/;
+const HUB_URL =
+	"https://docs.google.com/spreadsheets/u/0/d/1Z8aANbxXbnUGoZPRvJfWL3gz6jrzPPrwVt3d0c1iJ_4/htmlview/sheet?headers=true&gid=1884837542";
+
+const MAX_BODY_BYTES = 10 * 1024 * 1024;
 
 async function scrapeTrackerHub(): Promise<Artist[]> {
 	const controller = new AbortController();
 	const timeout = setTimeout(() => controller.abort(), 15_000);
 	let html: string;
 	try {
-		const res = await fetch(
-			"https://docs.google.com/spreadsheets/u/0/d/1Z8aANbxXbnUGoZPRvJfWL3gz6jrzPPrwVt3d0c1iJ_4/htmlview/sheet?headers=true&gid=1884837542",
-			{
-				signal: controller.signal,
-				headers: { "User-Agent": "TrackerHub/1.0" },
-			},
-		);
+		const res = await fetch(HUB_URL, {
+			signal: controller.signal,
+			headers: { "User-Agent": "TrackerHub/1.0" },
+		});
 		if (!res.ok) {
 			console.error(
 				`Failed to fetch tracker hub: ${res.status} ${res.statusText}`,
 			);
 			return [];
 		}
-		html = await res.text();
+		const buf = await res.arrayBuffer();
+		if (buf.byteLength > MAX_BODY_BYTES) {
+			console.error(`Tracker hub response too large: ${buf.byteLength} bytes`);
+			return [];
+		}
+		html = new TextDecoder().decode(buf);
 	} catch (err) {
 		console.error("Failed to fetch tracker hub:", err);
 		return [];
@@ -186,11 +224,13 @@ async function scrapeTrackerHub(): Promise<Artist[]> {
 	}
 
 	const entries: Artist[] = [];
+	const cells: string[] = [];
 
 	for (const rowMatch of html.matchAll(ROW_RE)) {
-		const cells: string[] = [];
+		cells.length = 0;
 		for (const cellMatch of rowMatch[1].matchAll(CELL_RE)) {
 			cells.push(cellMatch[1]);
+			if (cells.length === 5) break;
 		}
 		if (cells.length < 5) continue;
 
@@ -203,7 +243,7 @@ async function scrapeTrackerHub(): Promise<Artist[]> {
 
 		const rawName = tracker.text;
 		const best = rawName.includes("⭐️");
-		const name = rawName.replace(/^[^\p{L}\p{N}]+/u, "").trim();
+		const name = rawName.replace(NAME_STRIP_RE, "").trim();
 		if (!name || BLOCKLIST.has(name)) continue;
 
 		entries.push({
@@ -219,14 +259,10 @@ async function scrapeTrackerHub(): Promise<Artist[]> {
 	return entries;
 }
 
-function sheetId(url: string): string {
-	const m = url.match(SHEET_ID_RE);
-	return m ? m[1] : url;
-}
-
 function normalizeUrl(url: string): string {
 	if (url.includes("docs.google.com/spreadsheets")) {
-		return sheetId(url);
+		const m = url.match(SHEET_ID_RE);
+		return m ? m[1] : url;
 	}
 	return url.replace(/^https?:\/\//, "").replace(/\/+$/, "");
 }
@@ -234,29 +270,37 @@ function normalizeUrl(url: string): string {
 function combine(hub: Artist[], exclusives: Artist[]): Artist[] {
 	const seen = new Set<string>();
 	const out: Artist[] = [];
-	for (const entry of [...hub, ...exclusives]) {
-		const key = sheetId(entry.url);
-		if (seen.has(key)) continue;
-		seen.add(key);
+	for (const entry of hub) {
+		if (seen.has(entry.url)) continue;
+		seen.add(entry.url);
+		out.push(entry);
+	}
+	for (const entry of exclusives) {
+		if (seen.has(entry.url)) continue;
+		seen.add(entry.url);
 		out.push(entry);
 	}
 	return out;
 }
 
+const EXCLUSIVE_ARTISTS: Artist[] = parseCSV(exclusiveCSV);
+
 async function run(env: Env): Promise<void> {
 	try {
 		const hub = await scrapeTrackerHub();
-		const exclusives = parseCSV(exclusiveCSV);
-		const artists = combine(hub, exclusives);
+		const artists = combine(hub, EXCLUSIVE_ARTISTS);
 
 		const artistsCSV = serializeCSV(artists);
 
 		await env.BUCKET.put("artists.csv", artistsCSV, {
-			httpMetadata: { contentType: "text/csv" },
+			httpMetadata: {
+				contentType: "text/csv",
+				cacheControl: "public, max-age=300",
+			},
 		});
 
 		console.log(
-			`Done: ${hub.length} hub + ${exclusives.length} exclusives = ${artists.length} artists`,
+			`Done: ${hub.length} hub + ${EXCLUSIVE_ARTISTS.length} exclusives = ${artists.length} artists`,
 		);
 	} catch (err) {
 		console.error("Run failed:", err);
@@ -269,9 +313,21 @@ export default {
 		const { pathname } = new URL(request.url);
 		if (pathname === "/trigger") {
 			await run(env);
-			return new Response("OK");
+			return new Response("OK", {
+				headers: {
+					"Content-Type": "text/plain",
+					"X-Content-Type-Options": "nosniff",
+				},
+			});
 		}
-		return Response.redirect("https://artists.artistgrid.cx/artists.csv", 302);
+		return new Response(null, {
+			status: 302,
+			headers: {
+				Location: "https://artists.artistgrid.cx/artists.csv",
+				"Cache-Control": "public, max-age=300",
+				"X-Content-Type-Options": "nosniff",
+			},
+		});
 	},
 	async scheduled(
 		_event: ScheduledEvent,
