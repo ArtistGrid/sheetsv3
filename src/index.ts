@@ -2,6 +2,7 @@ import exclusiveCSV from "../exclusive.csv";
 
 export interface Env {
 	BUCKET: R2Bucket;
+	DISCORD_WEBHOOK_URL: string;
 }
 
 interface Artist {
@@ -285,10 +286,103 @@ function combine(hub: Artist[], exclusives: Artist[]): Artist[] {
 
 const EXCLUSIVE_ARTISTS: Artist[] = parseCSV(exclusiveCSV);
 
+interface ArtistDiff {
+	added: Artist[];
+	removed: Artist[];
+}
+
+function computeDiff(oldArtists: Artist[], newArtists: Artist[]): ArtistDiff {
+	const oldByUrl = new Map(oldArtists.map((a) => [a.url, a]));
+	const newByUrl = new Map(newArtists.map((a) => [a.url, a]));
+
+	const added: Artist[] = [];
+	const removed: Artist[] = [];
+
+	for (const [url, artist] of newByUrl) {
+		if (!oldByUrl.has(url)) {
+			added.push(artist);
+		}
+	}
+
+	for (const [url, artist] of oldByUrl) {
+		if (!newByUrl.has(url)) {
+			removed.push(artist);
+		}
+	}
+
+	return { added, removed };
+}
+
+async function notifyDiscord(
+	diff: ArtistDiff,
+	env: Env,
+): Promise<void> {
+	const webhookUrl = env.DISCORD_WEBHOOK_URL;
+	if (!webhookUrl) {
+		console.log("No Discord webhook URL configured, skipping notification");
+		return;
+	}
+
+	const { added, removed } = diff;
+	if (added.length === 0 && removed.length === 0) {
+		return;
+	}
+
+	const lines: string[] = [];
+	if (added.length > 0) {
+		lines.push(`**+${added.length} added:**`);
+		for (const a of added.slice(0, 25)) {
+			lines.push(`• ${a.name}`);
+		}
+		if (added.length > 25) {
+			lines.push(`... and ${added.length - 25} more`);
+		}
+	}
+	if (removed.length > 0) {
+		lines.push(`**-${removed.length} removed:**`);
+		for (const a of removed.slice(0, 25)) {
+			lines.push(`• ${a.name}`);
+		}
+		if (removed.length > 25) {
+			lines.push(`... and ${removed.length - 25} more`);
+		}
+	}
+
+	const content = `📊 **TrackerHub Update**\n${lines.join("\n")}`;
+
+	try {
+		const res = await fetch(webhookUrl, {
+			method: "POST",
+			headers: { "Content-Type": "application/json" },
+			body: JSON.stringify({ content }),
+		});
+		if (!res.ok) {
+			console.error(`Discord webhook failed: ${res.status} ${res.statusText}`);
+		} else {
+			console.log("Discord notification sent successfully");
+		}
+	} catch (err) {
+		console.error("Failed to send Discord notification:", err);
+	}
+}
+
 async function run(env: Env): Promise<void> {
 	try {
 		const hub = await scrapeTrackerHub();
 		const artists = combine(hub, EXCLUSIVE_ARTISTS);
+
+		const previousObj = await env.BUCKET.get("artists.csv");
+		let previousArtists: Artist[] = [];
+		if (previousObj) {
+			const previousCSV = await previousObj.text();
+			previousArtists = parseCSV(previousCSV);
+		}
+
+		const diff = computeDiff(previousArtists, artists);
+
+		if (previousArtists.length > 0 && (diff.added.length > 0 || diff.removed.length > 0)) {
+			await notifyDiscord(diff, env);
+		}
 
 		const artistsCSV = serializeCSV(artists);
 
