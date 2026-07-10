@@ -170,7 +170,7 @@ function parseCell(cell: string): { text: string; url: string } {
 	return { text, url };
 }
 
-const NAME_STRIP_RE = /^[^\p{L}\p{N}]+/u;
+const NAME_STRIP_RE = /^[^\p{L}\p{N}$]+/u;
 
 function mapLinksWork(val: string): number {
 	const lower = val.toLowerCase();
@@ -258,6 +258,34 @@ async function scrapeTrackerHub(): Promise<Artist[]> {
 	}
 
 	return entries;
+}
+
+const TRENDS_URL = "https://trends.artistgrid.cx/";
+
+async function fetchTrends(): Promise<Map<string, number>> {
+	const controller = new AbortController();
+	const timeout = setTimeout(() => controller.abort(), 15_000);
+	try {
+		const res = await fetch(TRENDS_URL, {
+			signal: controller.signal,
+			headers: { "User-Agent": "TrackerHub/1.0" },
+		});
+		if (!res.ok) {
+			console.error(`Failed to fetch trends: ${res.status} ${res.statusText}`);
+			return new Map();
+		}
+		const data = await res.json() as { results: { name: string; visitors: number }[] };
+		const map = new Map<string, number>();
+		for (const entry of data.results) {
+			map.set(entry.name.toLowerCase(), entry.visitors);
+		}
+		return map;
+	} catch (err) {
+		console.error("Failed to fetch trends:", err);
+		return new Map();
+	} finally {
+		clearTimeout(timeout);
+	}
 }
 
 function normalizeUrl(url: string): string {
@@ -369,7 +397,20 @@ async function notifyDiscord(
 async function run(env: Env): Promise<void> {
 	try {
 		const hub = await scrapeTrackerHub();
+		const trends = await fetchTrends();
 		const artists = combine(hub, EXCLUSIVE_ARTISTS);
+
+		artists.sort((a, b) => {
+			const aVisitors = trends.get(a.name.toLowerCase());
+			const bVisitors = trends.get(b.name.toLowerCase());
+			const aInTrends = aVisitors !== undefined;
+			const bInTrends = bVisitors !== undefined;
+			if (aInTrends && bInTrends) return bVisitors - aVisitors;
+			if (aInTrends) return -1;
+			if (bInTrends) return 1;
+			if (a.best !== b.best) return a.best ? -1 : 1;
+			return a.name.localeCompare(b.name);
+		});
 
 		const previousObj = await env.BUCKET.get("artists.csv");
 		let previousArtists: Artist[] = [];
