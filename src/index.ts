@@ -186,6 +186,7 @@ const BLOCKLIST = new Set([
 	"BPM & Key Tracker",
 	"AI Models",
 	"5F",
+	"THE FAT FUCKS!",
 ]);
 
 const ROW_RE = /<tr[^>]*>([\s\S]*?)<\/tr>/g;
