@@ -261,7 +261,8 @@ async function scrapeTrackerHub(): Promise<Artist[]> {
 	return entries;
 }
 
-const TRENDS_URL = "https://trends.artistgrid.cx/";
+const TRENDS_URL =
+  "https://plausible.canine.tools/api/stats/artistgrid.cx/custom-prop-values/name/?period=all&filters=%5B%5B%22is%22%2C%22event%3Agoal%22%2C%5B%22Artist%20Click%22%5D%5D%5D&with_imported=true&detailed=true&order_by=%5B%5B%22visitors%22%2C%22desc%22%5D%5D&limit=10000&page=1";
 
 async function fetchTrends(): Promise<Map<string, number>> {
 	const controller = new AbortController();
