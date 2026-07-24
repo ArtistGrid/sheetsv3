@@ -193,7 +193,7 @@ const ROW_RE = /<tr[^>]*>([\s\S]*?)<\/tr>/g;
 const CELL_RE = /<t[dh][^>]*>([\s\S]*?)<\/t[dh]>/g;
 const SHEET_ID_RE = /\/spreadsheets(?:\/u\/\d+)?\/d\/(?:e\/)?([A-Za-z0-9_-]+)/;
 const HUB_URL =
-	"https://docs.google.com/spreadsheets/u/0/d/1Z8aANbxXbnUGoZPRvJfWL3gz6jrzPPrwVt3d0c1iJ_4/htmlview/sheet?headers=true&gid=1884837542";
+	"https://docs.google.com/spreadsheets/u/0/d/1Z8aANbxXbnUGoZPRvJfWL3gz6jrzPPrwVt3d0c1iJ_4/preview/sheet?gid=1884837542";
 
 const MAX_BODY_BYTES = 10 * 1024 * 1024;
 
