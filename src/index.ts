@@ -202,9 +202,18 @@ async function scrapeTrackerHub(): Promise<Artist[]> {
 	const timeout = setTimeout(() => controller.abort(), 15_000);
 	let html: string;
 	try {
-		const res = await fetch(HUB_URL, {
+		const cacheBustedHubUrl = `${HUB_URL}&_t=${Date.now()}`;
+		const res = await fetch(cacheBustedHubUrl, {
 			signal: controller.signal,
-			headers: { "User-Agent": "TrackerHub/1.0" },
+			headers: {
+				"User-Agent": "TrackerHub/1.0",
+				"Cache-Control": "no-cache, no-store, max-age=0, must-revalidate",
+				"Pragma": "no-cache",
+			},
+			cf: {
+				cacheTtl: 0,
+				cacheEverything: false,
+			},
 		});
 		if (!res.ok) {
 			console.error(
@@ -268,9 +277,18 @@ async function fetchTrends(): Promise<Map<string, number>> {
 	const controller = new AbortController();
 	const timeout = setTimeout(() => controller.abort(), 15_000);
 	try {
-		const res = await fetch(TRENDS_URL, {
+		const cacheBustedTrendsUrl = `${TRENDS_URL}&_t=${Date.now()}`;
+		const res = await fetch(cacheBustedTrendsUrl, {
 			signal: controller.signal,
-			headers: { "User-Agent": "TrackerHub/1.0" },
+			headers: {
+				"User-Agent": "TrackerHub/1.0",
+				"Cache-Control": "no-cache, no-store, max-age=0, must-revalidate",
+				"Pragma": "no-cache",
+			},
+			cf: {
+				cacheTtl: 0,
+				cacheEverything: false,
+			},
 		});
 		if (!res.ok) {
 			console.error(`Failed to fetch trends: ${res.status} ${res.statusText}`);
@@ -453,6 +471,8 @@ export default {
 			return new Response("OK", {
 				headers: {
 					"Content-Type": "text/plain",
+					"Cache-Control": "no-cache, no-store, must-revalidate",
+					"Pragma": "no-cache",
 					"X-Content-Type-Options": "nosniff",
 				},
 			});
@@ -467,7 +487,7 @@ export default {
 		});
 	},
 	async scheduled(
-		_event: ScheduledEvent,
+		_controller: ScheduledController,
 		env: Env,
 		_ctx: ExecutionContext,
 	): Promise<void> {
