@@ -378,7 +378,7 @@ async function notifyDiscord(
 		}
 	}
 
-	const content = `📊 **TrackerHub Update**\n${lines.join("\n")}`;
+	const content = `**Update**\n${lines.join("\n")}`;
 
 	try {
 		const res = await fetch(webhookUrl, {
