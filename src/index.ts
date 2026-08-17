@@ -1,9 +1,14 @@
+import * as Sentry from "@sentry/cloudflare";
 import exclusiveCSV from "../exclusive.csv";
 
 export interface Env {
 	BUCKET: R2Bucket;
 	DISCORD_WEBHOOK_URL: string;
+	SENTRY_DSN?: string;
 }
+
+const SENTRY_DSN =
+	"https://ae91ea9cedbc42ed89d3fba4eca3d298@rustrak-api.edideaur.works/4";
 
 interface Artist {
 	name: string;
@@ -417,6 +422,13 @@ async function notifyDiscord(
 async function run(env: Env): Promise<void> {
 	try {
 		const hub = await scrapeTrackerHub();
+
+		if (hub.length === 0) {
+			throw new Error(
+				"TrackerHub scrape failed: 0 artists scraped, skipping R2 write",
+			);
+		}
+
 		const trends = await fetchTrends();
 		const artists = combine(hub, EXCLUSIVE_ARTISTS);
 
@@ -463,34 +475,41 @@ async function run(env: Env): Promise<void> {
 	}
 }
 
-export default {
-	async fetch(request: Request, env: Env): Promise<Response> {
-		const { pathname } = new URL(request.url);
-		if (pathname === "/trigger") {
-			await run(env);
-			return new Response("OK", {
+export default Sentry.withSentry(
+	(env: Env) => ({
+		dsn: env.SENTRY_DSN ?? SENTRY_DSN,
+		tracesSampleRate: 0,
+		environment: "production",
+	}),
+	{
+		async fetch(request: Request, env: Env): Promise<Response> {
+			const { pathname } = new URL(request.url);
+			if (pathname === "/trigger") {
+				await run(env);
+				return new Response("OK", {
+					headers: {
+						"Content-Type": "text/plain",
+						"Cache-Control": "no-cache, no-store, must-revalidate",
+						"Pragma": "no-cache",
+						"X-Content-Type-Options": "nosniff",
+					},
+				});
+			}
+			return new Response(null, {
+				status: 302,
 				headers: {
-					"Content-Type": "text/plain",
-					"Cache-Control": "no-cache, no-store, must-revalidate",
-					"Pragma": "no-cache",
+					Location: "https://artists.artistgrid.cx/artists.csv",
+					"Cache-Control": "public, max-age=300",
 					"X-Content-Type-Options": "nosniff",
 				},
 			});
-		}
-		return new Response(null, {
-			status: 302,
-			headers: {
-				Location: "https://artists.artistgrid.cx/artists.csv",
-				"Cache-Control": "public, max-age=300",
-				"X-Content-Type-Options": "nosniff",
-			},
-		});
-	},
-	async scheduled(
-		_controller: ScheduledController,
-		env: Env,
-		_ctx: ExecutionContext,
-	): Promise<void> {
-		await run(env);
-	},
-} satisfies ExportedHandler<Env>;
+		},
+		async scheduled(
+			_controller: ScheduledController,
+			env: Env,
+			_ctx: ExecutionContext,
+		): Promise<void> {
+			await run(env);
+		},
+	} satisfies ExportedHandler<Env>,
+);

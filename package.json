@@ -4,9 +4,12 @@
     "deploy": "wrangler deploy",
     "dev": "wrangler dev"
   },
-  "dependencies": {},
+  "dependencies": {
+    "@sentry/cloudflare": "^10.70.0"
+  },
   "devDependencies": {
     "@cloudflare/workers-types": "^4.20260617.1",
+    "typescript": "^7.0.2",
     "wrangler": "^4.101.0"
   }
 }
