@@ -444,6 +444,21 @@ async function run(env: Env): Promise<void> {
 			return a.name.localeCompare(b.name);
 		});
 
+		const edwardIndex = artists.findIndex(
+			(a) => a.name.trim().toLowerCase() === "edward skeletrix",
+		);
+		const yeatIndex = artists.findIndex(
+			(a) => a.name.trim().toLowerCase() === "yeat",
+		);
+
+		if (edwardIndex !== -1 && yeatIndex !== -1) {
+			const [edward] = artists.splice(edwardIndex, 1);
+			const targetYeatIndex = artists.findIndex(
+				(a) => a.name.trim().toLowerCase() === "yeat",
+			);
+			artists.splice(targetYeatIndex, 0, edward);
+		}
+
 		const previousObj = await env.BUCKET.get("artists.csv");
 		let previousArtists: Artist[] = [];
 		if (previousObj) {
